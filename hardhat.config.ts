@@ -22,16 +22,15 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: {
+      allowBlocksWithSameTimestamp: true,
       type: "edr-simulated",
       chainType: "l1",
-      allowBlocksWithSameTimestamp: true,
       blockGasLimit: 1099511627775n,
     },
    
     local:{
       type: "http",
       chainType: "l1",
-
       url: "http://127.0.0.1:8545/",
       chainId: 31337,
       accounts:{

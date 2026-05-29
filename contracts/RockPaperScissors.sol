@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.28;
 import "./Keccak256Utils.sol";
-improt "./ClaimWinnerUtils.sol";
+import "./ClaimWinnerUtils.sol";
 
 /**
  * Jesus is the LORD!!!
@@ -33,7 +33,7 @@ contract RockPaperScissors {
     // Immutable owner field
     address payable public immutable owner;
 
-    uint256 public bidMin = 0.01 ether; // Minimum bid amount
+    uint256 public bid = 0.01 ether; // Minimum bid amount
     uint8 public commission = 1; // Commission percentage
 
     constructor() {
@@ -53,23 +53,26 @@ contract RockPaperScissors {
         lastGameRecord = gameData;
     }
 
+    modifier onlyOwner() {
+        require(msg.sender == owner, "You do not have permission");
+        _;
+    }
+
     /**
      * New minimum bid value
      */
-    function setBid(uint256 newBid) external {
-        require(msg.sender == owner, "You do not have permission");
+    function setBid(uint256 newBid) external onlyOwner {
         require(
             gameData.hashOptionP1 == 0,
-            "You can not change the comission with a game in progress"
+            "You can not change the bid with a game in progress"
         );
-        bidMin = newBid;
+        bid = newBid;
     }
 
     /**
      * New platform commission
      */
-    function setComission(uint8 newComission) external {
-        require(msg.sender == owner, "You do not have permission");
+    function setComission(uint8 newComission) external onlyOwner {
         require(
             gameData.hashOptionP1 == 0,
             "You can not change the comission with a game in progress"
@@ -91,7 +94,7 @@ contract RockPaperScissors {
         gameData.optionP1 = -1;
         gameData.keyGame = new bytes(0);
 
-        bidMin = 0.01 ether;
+        bid = 0.01 ether;
     }
 
     /**
@@ -108,10 +111,10 @@ contract RockPaperScissors {
      *
      */
     function playerInit(bytes32 hashOptionP1In) public payable {
-        require(msg.value >= bidMin, "Invalid Bid");
+        require(msg.value >= bid, "Invalid Bid");
         require(gameData.hashOptionP1 == 0, "Player 1 already chose");
 
-        bidMin = msg.value; // Minimum bid is set to the amount sent by player 1
+        bid = msg.value; // Minimum bid is set to the amount sent by player 1
 
         gameData.hashOptionP1 = hashOptionP1In;
         gameData.player1 = msg.sender;
@@ -160,7 +163,7 @@ contract RockPaperScissors {
         require(gameData.optionP2 == -1, "Game Already Accepted");
         require(optionP2In > -1, "Your option must be 0, 1, or 2");
         require(optionP2In < 3, "Your option must be 0, 1, or 2");
-        require(msg.value == bidMin, "Invalid amount");
+        require(msg.value == bid, "Invalid amount");
 
         // Zero confirms do not exist in ETH, so block.timestamp > gameData.nLockTime
         require(
@@ -200,12 +203,17 @@ contract RockPaperScissors {
         gameData.optionP1 = optionP1In;
 
         if (
-            (keccak256(Keccak256Utils.appendByteToBytes(keygame, optionP1In)) == gameData.hashOptionP1) &&
-            (optionP1In >= 0 && optionP1In < 3) &&
+            (keccak256(Keccak256Utils.appendByteToBytes(keygame, optionP1In)) !=
+                gameData.hashOptionP1) || (optionP1In < 0 || optionP1In > 2)
+        ) {
+            payable(gameData.player2).transfer(address(this).balance);
+        } else if (
             (ClaimWinnerUtils.claimWinner(optionP1In, gameData.optionP2) == 1)
         ) {
             payable(gameData.player1).transfer(address(this).balance);
-        } else if (ClaimWinnerUtils.claimWinner(optionP1In, gameData.optionP2) == 2) {
+        } else if (
+            ClaimWinnerUtils.claimWinner(optionP1In, gameData.optionP2) == 2
+        ) {
             payable(gameData.player2).transfer(address(this).balance);
         } else {
             // In the case of a draw, the bet amount is returned to both players
@@ -227,6 +235,28 @@ contract RockPaperScissors {
             "Game can only be claimed after Player 2 timeout"
         );
         payable(gameData.player2).transfer(address(this).balance);
+        resetGameFields();
+    }
+
+    /**
+     * If player 1 does not quite game after 48h of timeout,
+     * the contract owner can cancel the game and receive 10% from bid.
+     */
+    function cancelGame() external onlyOwner {
+        require(
+            block.timestamp > gameData.timeOutP1 + (3600 * 48),
+            "Can't cancel game before 48h after player 1 timeout"
+        );
+        require(
+            gameData.optionP2 == -1,
+            "Can't cancel game after other player acceptance"
+        );
+
+        address contractAddress = address(this);
+        payable(owner).transfer(contractAddress.balance / 10);
+
+        // The rest of the balance goes to player 1;
+        payable(gameData.player1).transfer(contractAddress.balance);
         resetGameFields();
     }
 }
